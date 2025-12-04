@@ -10,4 +10,6 @@ couchbase:
   bucket: "order_analytics"
   username: "Administrator"
   password: "password"
+ingress:
+  host: "orders.jumptotech.net"
 
