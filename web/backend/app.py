@@ -1,14 +1,14 @@
 from fastapi import FastAPI
 import os
-import psycopg2
-import json
 from couchbase.cluster import Cluster, ClusterOptions
 from couchbase.auth import PasswordAuthenticator
 from couchbase.options import ClusterTimeoutOptions
 
 app = FastAPI()
 
-# Couchbase env variables
+# -------------------------------
+# Environment variables
+# -------------------------------
 COUCHBASE_HOST = os.getenv("COUCHBASE_HOST")
 COUCHBASE_BUCKET = os.getenv("COUCHBASE_BUCKET")
 COUCHBASE_USER = os.getenv("COUCHBASE_USERNAME")
@@ -16,7 +16,16 @@ COUCHBASE_PASS = os.getenv("COUCHBASE_PASSWORD")
 
 
 # ---------------------------------------------------------
-# Health check endpoint for Kubernetes / ECS / LoadBalancers
+# REQUIRED BY AWS ALB — DEFAULT HEALTH CHECK ENDPOINT
+# ALB calls GET "/" → MUST return 200 OK
+# ---------------------------------------------------------
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "backend"}
+
+
+# ---------------------------------------------------------
+# Kubernetes / ECS custom health check
 # ---------------------------------------------------------
 @app.get("/healthz")
 def healthz():
@@ -24,32 +33,33 @@ def healthz():
 
 
 # ---------------------------------------------------------
-# Analytics endpoint — read last 10 records from Couchbase
+# Couchbase Analytics API
+# GET last 10 orders from Couchbase bucket
 # ---------------------------------------------------------
 @app.get("/api/analytics")
 def get_analytics():
     try:
-        # Connect to Couchbase
+        # Connect to Couchbase cluster
         cluster = Cluster(
             f"couchbase://{COUCHBASE_HOST}",
             ClusterOptions(
                 PasswordAuthenticator(COUCHBASE_USER, COUCHBASE_PASS),
-                timeout_options=ClusterTimeoutOptions(kv_timeout=5)
+                timeout_options=ClusterTimeoutOptions(kv_timeout=5),
             )
         )
 
         bucket = cluster.bucket(COUCHBASE_BUCKET)
         collection = bucket.default_collection()
 
-        # Query: get last 10 orders
+        # Query last 10 orders
         result = cluster.query(
             f"SELECT * FROM `{COUCHBASE_BUCKET}` LIMIT 10;"
         )
 
         orders = [row for row in result]
 
-        return {"status": "ok", "orders": orders}
+        return {"status": "ok", "count": len(orders), "orders": orders}
 
     except Exception as e:
-        return {"error": str(e)}
+        return {"status": "error", "message": str(e)}
 
