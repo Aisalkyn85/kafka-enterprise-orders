@@ -1,0 +1,27 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: keo-eks
+  region: us-east-2
+
+vpc:
+  id: vpc-0ad14566141277102
+  subnets:
+    private:
+      us-east-2a:
+        id: subnet-0b1573524f0b46460
+      us-east-2b:
+        id: subnet-0392f900bd3ffb331
+
+nodeGroups:
+  - name: app-ng
+    instanceType: t3.medium
+    desiredCapacity: 2
+    minSize: 2
+    maxSize: 4
+    privateNetworking: true
+    ssh:
+      allow: true
+      publicKeyPath: ~/.ssh/id_rsa.pub
+
