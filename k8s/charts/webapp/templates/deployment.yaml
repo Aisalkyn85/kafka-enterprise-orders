@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp
+  labels:
+    app: webapp
+spec:
+  replicas: {{ .Values.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      app: webapp
+  template:
+    metadata:
+      labels:
+        app: webapp
+    spec:
+      imagePullSecrets:
+        - name: ghcr
+      containers:
+        - name: frontend
+          image: {{ .Values.frontendImage }}
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+          env:
+            - name: BACKEND_URL
+              value: "http://localhost:{{ .Values.backendPort }}"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 30
+
+        - name: backend
+          image: {{ .Values.backendImage }}
+          imagePullPolicy: Always
+          ports:
+            - containerPort: {{ .Values.backendPort }}
+          env:
+            - name: COUCHBASE_HOST
+              value: "{{ .Values.couchbase.host }}"
+            - name: COUCHBASE_BUCKET
+              value: "{{ .Values.couchbase.bucket }}"
+            - name: COUCHBASE_USERNAME
+              value: "{{ .Values.couchbase.username }}"
+            - name: COUCHBASE_PASSWORD
+              value: "{{ .Values.couchbase.password }}"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.backendPort }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.backendPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 30

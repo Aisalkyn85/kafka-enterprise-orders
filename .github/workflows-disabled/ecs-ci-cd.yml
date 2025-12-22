@@ -1,0 +1,101 @@
+name: ECS-CI-CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  AWS_REGION: us-east-2
+  TF_WORKING_DIR: infra/terraform
+  GHCR_REGISTRY: ghcr.io
+  PROJECT_NAME: kafka-enterprise-orders
+
+jobs:
+  build-and-push-ecs-images:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.GHCR_REGISTRY }} -u ${{ github.actor }} --password-stdin
+
+      # PRODUCER IMAGE
+      - name: Build & push producer image
+        run: |
+          IMAGE="${{ env.GHCR_REGISTRY }}/aisalkyn85/${{ env.PROJECT_NAME }}/producer:latest"
+          docker build -t "$IMAGE" ./producer
+          docker push "$IMAGE"
+          echo "PRODUCER_IMAGE=$IMAGE" >> $GITHUB_ENV
+
+      # FRAUD SERVICE IMAGE
+      - name: Build & push fraud-service image
+        run: |
+          IMAGE="${{ env.GHCR_REGISTRY }}/aisalkyn85/${{ env.PROJECT_NAME }}/fraud-service:latest"
+          docker build -t "$IMAGE" ./consumers/fraud-service
+          docker push "$IMAGE"
+          echo "FRAUD_IMAGE=$IMAGE" >> $GITHUB_ENV
+
+      # PAYMENT SERVICE IMAGE
+      - name: Build & push payment-service image
+        run: |
+          IMAGE="${{ env.GHCR_REGISTRY }}/aisalkyn85/${{ env.PROJECT_NAME }}/payment-service:latest"
+          docker build -t "$IMAGE" ./consumers/payment-service
+          docker push "$IMAGE"
+          echo "PAYMENT_IMAGE=$IMAGE" >> $GITHUB_ENV
+
+      # ANALYTICS SERVICE IMAGE
+      - name: Build & push analytics-service image
+        run: |
+          IMAGE="${{ env.GHCR_REGISTRY }}/aisalkyn85/${{ env.PROJECT_NAME }}/analytics-service:latest"
+          docker build -t "$IMAGE" ./consumers/analytics-service
+          docker push "$IMAGE"
+          echo "ANALYTICS_IMAGE=$IMAGE" >> $GITHUB_ENV
+
+  terraform-ecs:
+    needs: build-and-push-ecs-images
+    runs-on: ubuntu-latest
+    env:
+      TF_WORKING_DIR: infra/terraform
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init
+
+      - name: Terraform plan
+        id: plan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        env:
+          TF_VAR_aws_region: ${{ env.AWS_REGION }}
+
+          TF_VAR_container_image_producer:  ${{ env.PRODUCER_IMAGE }}
+          TF_VAR_container_image_fraud:     ${{ env.FRAUD_IMAGE }}
+          TF_VAR_container_image_payment:   ${{ env.PAYMENT_IMAGE }}
+          TF_VAR_container_image_analytics: ${{ env.ANALYTICS_IMAGE }}
+
+          TF_VAR_confluent_bootstrap_servers: ${{ secrets.CONFLUENT_BOOTSTRAP_SERVERS }}
+          TF_VAR_confluent_api_key:           ${{ secrets.CONFLUENT_API_KEY }}
+          TF_VAR_confluent_api_secret:        ${{ secrets.CONFLUENT_API_SECRET }}
+
+        run: terraform plan -out=tfplan
+
+      - name: Terraform apply
+        if: github.ref == 'refs/heads/main'
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform apply -auto-approve tfplan
+

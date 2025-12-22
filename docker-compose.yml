@@ -1,0 +1,162 @@
+services:
+  # Zookeeper
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    ports:
+      - "2181:2181"
+
+  # Kafka
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # Couchbase (local)
+  # Note: On first run, Couchbase needs manual setup:
+  # 1. Open http://localhost:8091
+  # 2. Complete the setup wizard (or skip)
+  # 3. Login: Administrator / password
+  # 4. Go to Buckets → Create Bucket → Name: order_analytics → Create
+  couchbase:
+    image: couchbase:community-7.2.0
+    container_name: couchbase
+    ports:
+      - "8091-8096:8091-8096"
+      - "11210:11210"
+    volumes:
+      - couchbase_data:/opt/couchbase/var
+    environment:
+      - COUCHBASE_ADMINISTRATOR_USERNAME=Administrator
+      - COUCHBASE_ADMINISTRATOR_PASSWORD=password
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8091/pools/default"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  # Couchbase initialization - creates bucket automatically
+  couchbase-init:
+    image: curlimages/curl:latest
+    container_name: couchbase-init
+    depends_on:
+      - couchbase
+    volumes:
+      - ./db/init-couchbase.sh:/init-couchbase.sh
+    entrypoint: ["/bin/sh", "/init-couchbase.sh"]
+    environment:
+      COUCHBASE_HOST: couchbase
+      COUCHBASE_PORT: 8091
+      COUCHBASE_USERNAME: Administrator
+      COUCHBASE_PASSWORD: password
+      COUCHBASE_BUCKET: order_analytics
+    restart: "no"
+
+  # Producer - generates orders
+  producer:
+    build: ./producer
+    container_name: producer
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+    restart: on-failure
+
+  # Fraud detection consumer
+  fraud-service:
+    build: ./consumers/fraud-service
+    container_name: fraud-service
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+    restart: on-failure
+
+  # Payment processing consumer
+  payment-service:
+    build: ./consumers/payment-service
+    container_name: payment-service
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+    restart: on-failure
+
+  # Analytics consumer - writes to Couchbase
+  analytics-service:
+    build: ./consumers/analytics-service
+    container_name: analytics-service
+    depends_on:
+      kafka:
+        condition: service_started
+      couchbase:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      COUCHBASE_HOST: couchbase
+      COUCHBASE_BUCKET: order_analytics
+      COUCHBASE_USERNAME: Administrator
+      COUCHBASE_PASSWORD: password
+    restart: on-failure
+
+  # Backend API
+  backend:
+    build: ./web/backend
+    container_name: backend
+    ports:
+      - "8000:8000"
+    environment:
+      COUCHBASE_HOST: couchbase
+      COUCHBASE_BUCKET: order_analytics
+      COUCHBASE_USERNAME: Administrator
+      COUCHBASE_PASSWORD: password
+    depends_on:
+      couchbase:
+        condition: service_healthy
+    restart: on-failure
+
+  # Frontend UI
+  frontend:
+    build: ./web/frontend
+    container_name: frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    environment:
+      REACT_APP_API_URL: http://localhost:8000
+
+  # Kafdrop - Kafka UI
+  kafdrop:
+    image: obsidiandynamics/kafdrop
+    container_name: kafdrop
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: kafka:9092
+      SERVER_SERVLET_CONTEXTPATH: "/"
+    restart: on-failure
+
+volumes:
+  couchbase_data:

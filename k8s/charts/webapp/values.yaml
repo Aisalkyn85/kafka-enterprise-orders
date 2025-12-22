@@ -1,0 +1,21 @@
+frontendImage: "ghcr.io/aisalkyn85/kafka-enterprise-orders/web-frontend:latest"
+backendImage: "ghcr.io/aisalkyn85/kafka-enterprise-orders/web-backend:latest"
+backendPort: 8000
+
+replicaCount: 1
+
+ghcr:
+  enabled: true
+  username: "aisalkyn85"
+  password: ""  # set via --set ghcr.password=xxx
+
+ingress:
+  enabled: true  # Set to false when managed by Terraform directly
+  host: "orders.jumptotech.net"
+  certificateArn: "arn:aws:acm:us-east-2:343218219153:certificate/00353776-9755-4283-98f8-e05c1e337b28"
+
+couchbase:
+  host: "cb.2s2wqp2fpzi0hanx.cloud.couchbase.com"
+  bucket: "order_analytics"
+  username: "admin"
+  password: ""  # set via --set couchbase.password=xxx

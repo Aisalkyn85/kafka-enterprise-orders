@@ -1,0 +1,4 @@
+fastapi
+uvicorn
+couchbase==4.3.0
+psycopg2-binary

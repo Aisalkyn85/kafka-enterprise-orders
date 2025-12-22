@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: webapp
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/Aisalkyn85/kafka-enterprise-orders.git'
+    targetRevision: main
+    path: k8s/charts/webapp
+    helm:
+      values: |
+        frontendImage: "ghcr.io/aisalkyn85/kafka-enterprise-orders/web-frontend:latest"
+        backendImage: "ghcr.io/aisalkyn85/kafka-enterprise-orders/web-backend:latest"
+        backendPort: 8000
+        replicaCount: 1
+        ghcr:
+          enabled: false
+        ingress:
+          host: "orders.jumptotech.net"
+          certificateArn: "arn:aws:acm:us-east-2:343218219153:certificate/00353776-9755-4283-98f8-e05c1e337b28"
+        couchbase:
+          host: "cb.2s2wqp2fpzi0hanx.cloud.couchbase.com"
+          bucket: "order_analytics"
+          username: "admin"
+          password: "P@ssword@1"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
